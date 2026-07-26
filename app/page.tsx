@@ -3,15 +3,20 @@
 import { useEffect, useMemo, useState } from "react";
 import { formatDueDate } from "@/lib/dueDate";
 
+type Assignee = "田中" | "乗松" | null;
+
 type Task = {
   id: number;
   name: string;
   dueDate: string | null;
+  assignee: Assignee;
+  notes: string | null;
   completed: boolean;
   createdAt: string;
 };
 
 const POLL_INTERVAL_MS = 10000;
+const ASSIGNEES: Assignee[] = ["田中", "乗松"];
 
 export default function Home() {
   const [tasks, setTasks] = useState<Task[]>([]);
@@ -19,6 +24,10 @@ export default function Home() {
   const [search, setSearch] = useState("");
   const [newName, setNewName] = useState("");
   const [newDueDate, setNewDueDate] = useState("");
+  const [newAssignee, setNewAssignee] = useState<Assignee>(null);
+  const [editingNameId, setEditingNameId] = useState<number | null>(null);
+  const [editingDueDateId, setEditingDueDateId] = useState<number | null>(null);
+  const [openNotesId, setOpenNotesId] = useState<number | null>(null);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -40,29 +49,32 @@ export default function Home() {
     };
   }, []);
 
+  const patchTask = async (id: number, updates: Partial<Task>) => {
+    setTasks((prev) => prev.map((t) => (t.id === id ? { ...t, ...updates } : t)));
+    await fetch(`/api/tasks/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(updates),
+    });
+  };
+
   const addTask = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newName.trim()) return;
     const res = await fetch("/api/tasks", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name: newName.trim(), dueDate: newDueDate || null }),
+      body: JSON.stringify({
+        name: newName.trim(),
+        dueDate: newDueDate || null,
+        assignee: newAssignee,
+      }),
     });
     const data = await res.json();
     setTasks((prev) => [...prev, data.task]);
     setNewName("");
     setNewDueDate("");
-  };
-
-  const toggleCompleted = async (task: Task) => {
-    setTasks((prev) =>
-      prev.map((t) => (t.id === task.id ? { ...t, completed: !t.completed } : t))
-    );
-    await fetch(`/api/tasks/${task.id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ completed: !task.completed }),
-    });
+    setNewAssignee(null);
   };
 
   const removeTask = async (task: Task) => {
@@ -85,7 +97,7 @@ export default function Home() {
 
   return (
     <div className="min-h-screen bg-[#191919] text-zinc-100 font-sans">
-      <div className="mx-auto max-w-3xl px-6 py-8">
+      <div className="mx-auto max-w-4xl px-6 py-8">
         <div className="flex items-center justify-between mb-6">
           <h1 className="text-xl font-semibold">タスクリスト</h1>
           <input
@@ -105,6 +117,18 @@ export default function Home() {
             onChange={(e) => setNewName(e.target.value)}
             className="flex-1 rounded-md bg-[#2a2a2a] border border-zinc-700 px-3 py-2 text-sm placeholder:text-zinc-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
           />
+          <select
+            value={newAssignee ?? ""}
+            onChange={(e) => setNewAssignee((e.target.value || null) as Assignee)}
+            className="rounded-md bg-[#2a2a2a] border border-zinc-700 px-2 py-2 text-sm text-zinc-300 focus:outline-none focus:ring-1 focus:ring-blue-500"
+          >
+            <option value="">担当者</option>
+            {ASSIGNEES.map((a) => (
+              <option key={a} value={a ?? ""}>
+                {a}
+              </option>
+            ))}
+          </select>
           <input
             type="date"
             value={newDueDate}
@@ -120,9 +144,11 @@ export default function Home() {
         </form>
 
         <div className="rounded-lg border border-zinc-800 overflow-hidden">
-          <div className="grid grid-cols-[1fr_120px_32px] gap-2 px-4 py-2 text-xs text-zinc-500 border-b border-zinc-800 bg-[#202020]">
+          <div className="grid grid-cols-[1fr_84px_96px_44px_28px] gap-2 px-4 py-2 text-xs text-zinc-500 border-b border-zinc-800 bg-[#202020]">
             <span>名前</span>
+            <span>担当者</span>
             <span>期日</span>
+            <span></span>
             <span></span>
           </div>
 
@@ -136,41 +162,124 @@ export default function Home() {
 
           {visibleTasks.map((task) => {
             const due = formatDueDate(task.dueDate, task.completed);
+            const isEditingName = editingNameId === task.id;
+            const isEditingDueDate = editingDueDateId === task.id;
+            const notesOpen = openNotesId === task.id;
+            const hasNotes = !!task.notes && task.notes.trim().length > 0;
+
             return (
-              <div
-                key={task.id}
-                className="group grid grid-cols-[1fr_120px_32px] gap-2 items-center px-4 py-2.5 border-b border-zinc-800 last:border-b-0 hover:bg-[#202020]"
-              >
-                <div className="flex items-center gap-3 min-w-0">
-                  <button
-                    onClick={() => toggleCompleted(task)}
-                    className={`shrink-0 h-4 w-4 rounded-full border flex items-center justify-center ${
-                      task.completed
-                        ? "bg-emerald-500 border-emerald-500"
-                        : "border-zinc-600"
-                    }`}
-                    aria-label="完了トグル"
-                  >
-                    {task.completed && (
-                      <span className="text-[10px] leading-none text-[#191919]">✓</span>
+              <div key={task.id} className="border-b border-zinc-800 last:border-b-0">
+                <div className="group grid grid-cols-[1fr_84px_96px_44px_28px] gap-2 items-center px-4 py-2.5 hover:bg-[#202020]">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <button
+                      onClick={() => patchTask(task.id, { completed: !task.completed })}
+                      className={`shrink-0 h-4 w-4 rounded-full border flex items-center justify-center ${
+                        task.completed
+                          ? "bg-emerald-500 border-emerald-500"
+                          : "border-zinc-600"
+                      }`}
+                      aria-label="完了トグル"
+                    >
+                      {task.completed && (
+                        <span className="text-[10px] leading-none text-[#191919]">✓</span>
+                      )}
+                    </button>
+                    {isEditingName ? (
+                      <input
+                        autoFocus
+                        type="text"
+                        defaultValue={task.name}
+                        onBlur={(e) => {
+                          const value = e.target.value.trim();
+                          if (value) patchTask(task.id, { name: value });
+                          setEditingNameId(null);
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") e.currentTarget.blur();
+                          if (e.key === "Escape") setEditingNameId(null);
+                        }}
+                        className="min-w-0 flex-1 rounded bg-[#2a2a2a] border border-zinc-600 px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500"
+                      />
+                    ) : (
+                      <span
+                        onClick={() => setEditingNameId(task.id)}
+                        className={`truncate text-sm cursor-text ${
+                          task.completed ? "line-through text-zinc-500" : "text-zinc-100"
+                        }`}
+                      >
+                        {task.name}
+                      </span>
                     )}
-                  </button>
-                  <span
-                    className={`truncate text-sm ${
-                      task.completed ? "line-through text-zinc-500" : "text-zinc-100"
-                    }`}
+                  </div>
+
+                  <select
+                    value={task.assignee ?? ""}
+                    onChange={(e) =>
+                      patchTask(task.id, { assignee: (e.target.value || null) as Assignee })
+                    }
+                    className="rounded bg-transparent border border-transparent hover:border-zinc-700 px-1 py-1 text-sm text-zinc-300 focus:outline-none focus:ring-1 focus:ring-blue-500"
                   >
-                    {task.name}
-                  </span>
+                    <option value="">未定</option>
+                    {ASSIGNEES.map((a) => (
+                      <option key={a} value={a ?? ""}>
+                        {a}
+                      </option>
+                    ))}
+                  </select>
+
+                  {isEditingDueDate ? (
+                    <input
+                      autoFocus
+                      type="date"
+                      defaultValue={task.dueDate ?? ""}
+                      onChange={(e) => {
+                        patchTask(task.id, { dueDate: e.target.value || null });
+                        setEditingDueDateId(null);
+                      }}
+                      onBlur={() => setEditingDueDateId(null)}
+                      className="rounded bg-[#2a2a2a] border border-zinc-600 px-1 py-1 text-sm text-zinc-100 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                    />
+                  ) : (
+                    <span
+                      onClick={() => setEditingDueDateId(task.id)}
+                      className={`text-sm cursor-pointer ${due.colorClass} ${!due.label && "text-zinc-600"}`}
+                    >
+                      {due.label || "設定"}
+                    </span>
+                  )}
+
+                  <button
+                    onClick={() => setOpenNotesId(notesOpen ? null : task.id)}
+                    className={`text-xs rounded px-1.5 py-1 border ${
+                      hasNotes
+                        ? "border-zinc-500 text-zinc-200"
+                        : "border-transparent text-zinc-600 opacity-0 group-hover:opacity-100"
+                    } hover:border-zinc-400 hover:text-zinc-100 transition-opacity`}
+                    aria-label="メモ"
+                  >
+                    メモ
+                  </button>
+
+                  <button
+                    onClick={() => removeTask(task)}
+                    className="opacity-0 group-hover:opacity-100 text-zinc-500 hover:text-red-400 text-sm transition-opacity"
+                    aria-label="削除"
+                  >
+                    ×
+                  </button>
                 </div>
-                <span className={`text-sm ${due.colorClass}`}>{due.label}</span>
-                <button
-                  onClick={() => removeTask(task)}
-                  className="opacity-0 group-hover:opacity-100 text-zinc-500 hover:text-red-400 text-sm transition-opacity"
-                  aria-label="削除"
-                >
-                  ×
-                </button>
+
+                {notesOpen && (
+                  <div className="px-4 pb-3 pl-11">
+                    <textarea
+                      defaultValue={task.notes ?? ""}
+                      placeholder="メモを入力"
+                      rows={3}
+                      onBlur={(e) => patchTask(task.id, { notes: e.target.value || null })}
+                      className="w-full rounded-md bg-[#2a2a2a] border border-zinc-700 px-3 py-2 text-sm placeholder:text-zinc-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                    />
+                  </div>
+                )}
               </div>
             );
           })}
