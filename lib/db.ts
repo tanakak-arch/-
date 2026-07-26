@@ -4,8 +4,15 @@ import path from "node:path";
 
 export type Assignee = "田中" | "乗松" | null;
 
+export type Project = {
+  id: number;
+  name: string;
+  createdAt: string;
+};
+
 export type Task = {
   id: number;
+  projectId: number;
   name: string;
   dueDate: string | null;
   assignee: Assignee;
@@ -13,6 +20,8 @@ export type Task = {
   completed: boolean;
   createdAt: string;
 };
+
+const DEFAULT_PROJECT_NAME = "田中康太プロジェクト";
 
 const sql = process.env.DATABASE_URL ? neon(process.env.DATABASE_URL) : null;
 
@@ -22,6 +31,13 @@ function ensureTable(): Promise<void> {
   if (!sql) return Promise.resolve();
   if (!tableReady) {
     tableReady = (async () => {
+      await sql`
+        CREATE TABLE IF NOT EXISTS projects (
+          id SERIAL PRIMARY KEY,
+          name TEXT NOT NULL,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+        )
+      `;
       await sql`
         CREATE TABLE IF NOT EXISTS tasks (
           id SERIAL PRIMARY KEY,
@@ -33,13 +49,33 @@ function ensureTable(): Promise<void> {
       `;
       await sql`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS assignee TEXT`;
       await sql`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS notes TEXT`;
+      await sql`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS project_id INTEGER REFERENCES projects(id) ON DELETE CASCADE`;
+
+      // 導入前に作られた既存タスク（project_id未設定）を、既定のプロジェクトに割り当てる一度きりの移行処理
+      await sql`
+        INSERT INTO projects (name)
+        SELECT ${DEFAULT_PROJECT_NAME}
+        WHERE NOT EXISTS (SELECT 1 FROM projects)
+          AND EXISTS (SELECT 1 FROM tasks WHERE project_id IS NULL)
+      `;
+      await sql`
+        UPDATE tasks SET project_id = (SELECT id FROM projects ORDER BY id ASC LIMIT 1)
+        WHERE project_id IS NULL
+      `;
     })();
   }
   return tableReady;
 }
 
+type ProjectRow = { id: number; name: string; created_at: string };
+
+function toProject(row: ProjectRow): Project {
+  return { id: row.id, name: row.name, createdAt: row.created_at };
+}
+
 type Row = {
   id: number;
+  project_id: number;
   name: string;
   due_date: string | Date | null;
   assignee: string | null;
@@ -63,6 +99,7 @@ function normalizeDate(value: string | Date): string {
 function toTask(row: Row): Task {
   return {
     id: row.id,
+    projectId: row.project_id,
     name: row.name,
     dueDate: row.due_date ? normalizeDate(row.due_date) : null,
     assignee: (row.assignee as Assignee) ?? null,
@@ -77,20 +114,40 @@ function toTask(row: Row): Task {
 // Vercel Postgres 接続後は自動的に本物のDBへ切り替わる。
 const LOCAL_DB_PATH = path.join(process.cwd(), ".data", "tasks.local.json");
 
-type LocalState = { nextId: number; tasks: Task[] };
+type LocalState = {
+  nextId: number;
+  nextProjectId: number;
+  projects: Project[];
+  tasks: Task[];
+};
 
 function readLocalState(): LocalState {
+  let state: LocalState;
   try {
     const raw = fs.readFileSync(LOCAL_DB_PATH, "utf-8");
-    const state = JSON.parse(raw) as LocalState;
-    state.tasks.forEach((t) => {
-      if (t.assignee === undefined) t.assignee = null;
-      if (t.notes === undefined) t.notes = null;
-    });
-    return state;
+    state = JSON.parse(raw) as LocalState;
   } catch {
-    return { nextId: 1, tasks: [] };
+    state = { nextId: 1, nextProjectId: 1, projects: [], tasks: [] };
   }
+  if (!state.projects) state.projects = [];
+  if (!state.nextProjectId) state.nextProjectId = 1;
+  state.tasks.forEach((t) => {
+    if (t.assignee === undefined) t.assignee = null;
+    if (t.notes === undefined) t.notes = null;
+  });
+
+  const orphanTasks = state.tasks.filter((t) => t.projectId === undefined || t.projectId === null);
+  if (state.projects.length === 0 && orphanTasks.length > 0) {
+    const project: Project = {
+      id: state.nextProjectId++,
+      name: DEFAULT_PROJECT_NAME,
+      createdAt: new Date().toISOString(),
+    };
+    state.projects.push(project);
+    orphanTasks.forEach((t) => (t.projectId = project.id));
+    writeLocalState(state);
+  }
+  return state;
 }
 
 function writeLocalState(state: LocalState): void {
@@ -98,16 +155,59 @@ function writeLocalState(state: LocalState): void {
   fs.writeFileSync(LOCAL_DB_PATH, JSON.stringify(state, null, 2));
 }
 
-export async function listTasks(): Promise<Task[]> {
+export async function listProjects(): Promise<Project[]> {
   if (!sql) {
-    return readLocalState().tasks;
+    return readLocalState().projects;
   }
   await ensureTable();
-  const rows = (await sql`SELECT * FROM tasks ORDER BY created_at ASC`) as Row[];
+  const rows = (await sql`SELECT * FROM projects ORDER BY created_at ASC`) as ProjectRow[];
+  return rows.map(toProject);
+}
+
+export async function createProject(name: string): Promise<Project> {
+  if (!sql) {
+    const state = readLocalState();
+    const project: Project = {
+      id: state.nextProjectId++,
+      name,
+      createdAt: new Date().toISOString(),
+    };
+    state.projects.push(project);
+    writeLocalState(state);
+    return project;
+  }
+  await ensureTable();
+  const rows = (await sql`
+    INSERT INTO projects (name) VALUES (${name}) RETURNING *
+  `) as ProjectRow[];
+  return toProject(rows[0]);
+}
+
+export async function deleteProject(id: number): Promise<void> {
+  if (!sql) {
+    const state = readLocalState();
+    state.projects = state.projects.filter((p) => p.id !== id);
+    state.tasks = state.tasks.filter((t) => t.projectId !== id);
+    writeLocalState(state);
+    return;
+  }
+  await ensureTable();
+  await sql`DELETE FROM projects WHERE id = ${id}`;
+}
+
+export async function listTasks(projectId: number): Promise<Task[]> {
+  if (!sql) {
+    return readLocalState().tasks.filter((t) => t.projectId === projectId);
+  }
+  await ensureTable();
+  const rows = (await sql`
+    SELECT * FROM tasks WHERE project_id = ${projectId} ORDER BY created_at ASC
+  `) as Row[];
   return rows.map(toTask);
 }
 
 export async function createTask(
+  projectId: number,
   name: string,
   dueDate: string | null,
   assignee: Assignee
@@ -116,6 +216,7 @@ export async function createTask(
     const state = readLocalState();
     const task: Task = {
       id: state.nextId++,
+      projectId,
       name,
       dueDate,
       assignee,
@@ -129,8 +230,8 @@ export async function createTask(
   }
   await ensureTable();
   const rows = (await sql`
-    INSERT INTO tasks (name, due_date, assignee, completed)
-    VALUES (${name}, ${dueDate}, ${assignee}, false)
+    INSERT INTO tasks (project_id, name, due_date, assignee, completed)
+    VALUES (${projectId}, ${name}, ${dueDate}, ${assignee}, false)
     RETURNING *
   `) as Row[];
   return toTask(rows[0]);
