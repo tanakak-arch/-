@@ -34,6 +34,7 @@ export default function Home() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [search, setSearch] = useState("");
+  const [hideCompleted, setHideCompleted] = useState(true);
   const [newName, setNewName] = useState("");
   const [newDueDate, setNewDueDate] = useState("");
   const [newAssignee, setNewAssignee] = useState<Assignee>(null);
@@ -145,8 +146,10 @@ export default function Home() {
   };
 
   const visibleTasks = useMemo(() => {
-    const filtered = tasks.filter((t) =>
-      t.name.toLowerCase().includes(search.toLowerCase())
+    const filtered = tasks.filter(
+      (t) =>
+        t.name.toLowerCase().includes(search.toLowerCase()) &&
+        (!hideCompleted || !t.completed)
     );
     return filtered.sort((a, b) => {
       if (a.completed !== b.completed) return a.completed ? 1 : -1;
@@ -155,7 +158,7 @@ export default function Home() {
       if (!b.dueDate) return -1;
       return a.dueDate.localeCompare(b.dueDate);
     });
-  }, [tasks, search]);
+  }, [tasks, search, hideCompleted]);
 
   const selectedProject = projects.find((p) => p.id === selectedProjectId) ?? null;
 
@@ -230,13 +233,24 @@ export default function Home() {
             <>
               <div className="flex items-center justify-between mb-6">
                 <h1 className="text-xl font-semibold">{selectedProject.name}</h1>
-                <input
-                  type="text"
-                  placeholder="検索"
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                  className="rounded-md bg-[#2a2a2a] border border-zinc-700 px-3 py-1.5 text-sm placeholder:text-zinc-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                />
+                <div className="flex items-center gap-3">
+                  <label className="flex items-center gap-1.5 text-sm text-zinc-400 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={hideCompleted}
+                      onChange={(e) => setHideCompleted(e.target.checked)}
+                      className="accent-blue-600"
+                    />
+                    完了したタスクを隠す
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="検索"
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
+                    className="rounded-md bg-[#2a2a2a] border border-zinc-700 px-3 py-1.5 text-sm placeholder:text-zinc-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  />
+                </div>
               </div>
 
               <form onSubmit={addTask} className="flex gap-2 mb-4">
