@@ -4,9 +4,28 @@ function startOfDay(date: Date): Date {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate());
 }
 
-function parseDueDate(dueDate: string): Date {
+export function parseDueDate(dueDate: string): Date {
   const [y, m, d] = dueDate.split("-").map(Number);
   return new Date(y, m - 1, d);
+}
+
+function formatDate(date: Date): string {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const d = String(date.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
+// 現在の期日より後で、指定した曜日(0=日〜6=土)に最初に該当する日付を返す
+export function nextOccurrence(currentDueDate: string, weekdays: number[]): string {
+  const base = parseDueDate(currentDueDate);
+  for (let i = 1; i <= 7; i++) {
+    const candidate = new Date(base.getFullYear(), base.getMonth(), base.getDate() + i);
+    if (weekdays.includes(candidate.getDay())) {
+      return formatDate(candidate);
+    }
+  }
+  return currentDueDate;
 }
 
 export type DueDateInfo = {

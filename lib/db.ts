@@ -15,6 +15,7 @@ export type Task = {
   projectId: number;
   name: string;
   dueDate: string | null;
+  recurWeekdays: number[] | null;
   assignee: Assignee;
   notes: string | null;
   completed: boolean;
@@ -50,6 +51,7 @@ function ensureTable(): Promise<void> {
       await sql`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS assignee TEXT`;
       await sql`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS notes TEXT`;
       await sql`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS project_id INTEGER REFERENCES projects(id) ON DELETE CASCADE`;
+      await sql`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS recur_weekdays TEXT`;
 
       // 導入前に作られた既存タスク（project_id未設定）を、既定のプロジェクトに割り当てる一度きりの移行処理
       await sql`
@@ -78,6 +80,7 @@ type Row = {
   project_id: number;
   name: string;
   due_date: string | Date | null;
+  recur_weekdays: string | null;
   assignee: string | null;
   notes: string | null;
   completed: boolean;
@@ -102,6 +105,7 @@ function toTask(row: Row): Task {
     projectId: row.project_id,
     name: row.name,
     dueDate: row.due_date ? normalizeDate(row.due_date) : null,
+    recurWeekdays: row.recur_weekdays ? JSON.parse(row.recur_weekdays) : null,
     assignee: (row.assignee as Assignee) ?? null,
     notes: row.notes ?? null,
     completed: row.completed,
@@ -134,6 +138,7 @@ function readLocalState(): LocalState {
   state.tasks.forEach((t) => {
     if (t.assignee === undefined) t.assignee = null;
     if (t.notes === undefined) t.notes = null;
+    if (t.recurWeekdays === undefined) t.recurWeekdays = null;
   });
 
   const orphanTasks = state.tasks.filter((t) => t.projectId === undefined || t.projectId === null);
@@ -210,7 +215,8 @@ export async function createTask(
   projectId: number,
   name: string,
   dueDate: string | null,
-  assignee: Assignee
+  assignee: Assignee,
+  recurWeekdays: number[] | null
 ): Promise<Task> {
   if (!sql) {
     const state = readLocalState();
@@ -219,6 +225,7 @@ export async function createTask(
       projectId,
       name,
       dueDate,
+      recurWeekdays,
       assignee,
       notes: null,
       completed: false,
@@ -229,9 +236,10 @@ export async function createTask(
     return task;
   }
   await ensureTable();
+  const recurJson = recurWeekdays ? JSON.stringify(recurWeekdays) : null;
   const rows = (await sql`
-    INSERT INTO tasks (project_id, name, due_date, assignee, completed)
-    VALUES (${projectId}, ${name}, ${dueDate}, ${assignee}, false)
+    INSERT INTO tasks (project_id, name, due_date, assignee, recur_weekdays, completed)
+    VALUES (${projectId}, ${name}, ${dueDate}, ${assignee}, ${recurJson}, false)
     RETURNING *
   `) as Row[];
   return toTask(rows[0]);
@@ -243,6 +251,7 @@ export type TaskUpdates = {
   dueDate?: string | null;
   assignee?: Assignee;
   notes?: string | null;
+  recurWeekdays?: number[] | null;
 };
 
 export async function updateTask(id: number, updates: TaskUpdates): Promise<Task | null> {
@@ -255,17 +264,25 @@ export async function updateTask(id: number, updates: TaskUpdates): Promise<Task
     if (updates.dueDate !== undefined) task.dueDate = updates.dueDate;
     if (updates.assignee !== undefined) task.assignee = updates.assignee;
     if (updates.notes !== undefined) task.notes = updates.notes;
+    if (updates.recurWeekdays !== undefined) task.recurWeekdays = updates.recurWeekdays;
     writeLocalState(state);
     return task;
   }
   await ensureTable();
+  const recurJson =
+    updates.recurWeekdays !== undefined
+      ? updates.recurWeekdays
+        ? JSON.stringify(updates.recurWeekdays)
+        : null
+      : undefined;
   const rows = (await sql`
     UPDATE tasks SET
       completed = COALESCE(${updates.completed ?? null}, completed),
       name = COALESCE(${updates.name ?? null}, name),
       due_date = CASE WHEN ${updates.dueDate !== undefined} THEN ${updates.dueDate ?? null} ELSE due_date END,
       assignee = CASE WHEN ${updates.assignee !== undefined} THEN ${updates.assignee ?? null} ELSE assignee END,
-      notes = CASE WHEN ${updates.notes !== undefined} THEN ${updates.notes ?? null} ELSE notes END
+      notes = CASE WHEN ${updates.notes !== undefined} THEN ${updates.notes ?? null} ELSE notes END,
+      recur_weekdays = CASE WHEN ${recurJson !== undefined} THEN ${recurJson ?? null} ELSE recur_weekdays END
     WHERE id = ${id}
     RETURNING *
   `) as Row[];

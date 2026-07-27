@@ -12,6 +12,15 @@ function parseAssignee(value: unknown): Assignee | undefined {
     : null;
 }
 
+function parseRecurWeekdays(value: unknown): number[] | null | undefined {
+  if (value === undefined) return undefined;
+  if (!Array.isArray(value)) return null;
+  const weekdays = value.filter(
+    (v): v is number => typeof v === "number" && v >= 0 && v <= 6
+  );
+  return weekdays.length > 0 ? weekdays : null;
+}
+
 export async function PATCH(request: NextRequest, { params }: Params) {
   const { id } = await params;
   const body = await request.json();
@@ -22,6 +31,7 @@ export async function PATCH(request: NextRequest, { params }: Params) {
     dueDate: body.dueDate !== undefined ? body.dueDate : undefined,
     assignee: parseAssignee(body.assignee),
     notes: typeof body.notes === "string" ? body.notes : body.notes === null ? null : undefined,
+    recurWeekdays: parseRecurWeekdays(body.recurWeekdays),
   });
 
   if (!task) {

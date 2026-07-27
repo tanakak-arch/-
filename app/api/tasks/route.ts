@@ -9,6 +9,14 @@ function parseAssignee(value: unknown): Assignee {
     : null;
 }
 
+function parseRecurWeekdays(value: unknown): number[] | null {
+  if (!Array.isArray(value)) return null;
+  const weekdays = value.filter(
+    (v): v is number => typeof v === "number" && v >= 0 && v <= 6
+  );
+  return weekdays.length > 0 ? weekdays : null;
+}
+
 export async function GET(request: NextRequest) {
   const projectId = Number(request.nextUrl.searchParams.get("projectId"));
   if (!projectId) {
@@ -24,6 +32,7 @@ export async function POST(request: NextRequest) {
   const name = typeof body.name === "string" ? body.name.trim() : "";
   const dueDate = typeof body.dueDate === "string" && body.dueDate ? body.dueDate : null;
   const assignee = parseAssignee(body.assignee);
+  const recurWeekdays = parseRecurWeekdays(body.recurWeekdays);
 
   if (!projectId) {
     return NextResponse.json({ error: "projectId is required" }, { status: 400 });
@@ -32,6 +41,6 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "name is required" }, { status: 400 });
   }
 
-  const task = await createTask(projectId, name, dueDate, assignee);
+  const task = await createTask(projectId, name, dueDate, assignee, recurWeekdays);
   return NextResponse.json({ task }, { status: 201 });
 }

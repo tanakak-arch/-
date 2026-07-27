@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { formatDueDate } from "@/lib/dueDate";
+import { formatDueDate, nextOccurrence } from "@/lib/dueDate";
 
 type Assignee = "田中" | "乗松" | null;
 
@@ -16,6 +16,7 @@ type Task = {
   projectId: number;
   name: string;
   dueDate: string | null;
+  recurWeekdays: number[] | null;
   assignee: Assignee;
   notes: string | null;
   completed: boolean;
@@ -24,6 +25,7 @@ type Task = {
 
 const POLL_INTERVAL_MS = 10000;
 const ASSIGNEES: Assignee[] = ["田中", "乗松"];
+const WEEKDAY_LABELS = ["日", "月", "火", "水", "木", "金", "土"];
 
 export default function Home() {
   const [projects, setProjects] = useState<Project[]>([]);
@@ -38,6 +40,8 @@ export default function Home() {
   const [newName, setNewName] = useState("");
   const [newDueDate, setNewDueDate] = useState("");
   const [newAssignee, setNewAssignee] = useState<Assignee>(null);
+  const [newRecurWeekdays, setNewRecurWeekdays] = useState<number[]>([]);
+  const [showNewRecur, setShowNewRecur] = useState(false);
   const [editingNameId, setEditingNameId] = useState<number | null>(null);
   const [editingDueDateId, setEditingDueDateId] = useState<number | null>(null);
   const [openNotesId, setOpenNotesId] = useState<number | null>(null);
@@ -105,6 +109,7 @@ export default function Home() {
         name: newName.trim(),
         dueDate: newDueDate || null,
         assignee: newAssignee,
+        recurWeekdays: newRecurWeekdays.length > 0 ? newRecurWeekdays : null,
       }),
     });
     const data = await res.json();
@@ -112,7 +117,21 @@ export default function Home() {
     setNewName("");
     setNewDueDate("");
     setNewAssignee(null);
+    setNewRecurWeekdays([]);
+    setShowNewRecur(false);
   };
+
+  const toggleCompleted = async (task: Task) => {
+    if (task.recurWeekdays && task.recurWeekdays.length > 0 && task.dueDate && !task.completed) {
+      const next = nextOccurrence(task.dueDate, task.recurWeekdays);
+      await patchTask(task.id, { dueDate: next });
+      return;
+    }
+    await patchTask(task.id, { completed: !task.completed });
+  };
+
+  const toggleWeekday = (list: number[], day: number): number[] =>
+    list.includes(day) ? list.filter((d) => d !== day) : [...list, day].sort();
 
   const removeTask = async (task: Task) => {
     setTasks((prev) => prev.filter((t) => t.id !== task.id));
@@ -253,38 +272,72 @@ export default function Home() {
                 </div>
               </div>
 
-              <form onSubmit={addTask} className="flex gap-2 mb-4">
-                <input
-                  type="text"
-                  placeholder="タスクを追加"
-                  value={newName}
-                  onChange={(e) => setNewName(e.target.value)}
-                  className="flex-1 rounded-md bg-[#2a2a2a] border border-zinc-700 px-3 py-2 text-sm placeholder:text-zinc-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                />
-                <select
-                  value={newAssignee ?? ""}
-                  onChange={(e) => setNewAssignee((e.target.value || null) as Assignee)}
-                  className="rounded-md bg-[#2a2a2a] border border-zinc-700 px-2 py-2 text-sm text-zinc-300 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                >
-                  <option value="">担当者</option>
-                  {ASSIGNEES.map((a) => (
-                    <option key={a} value={a ?? ""}>
-                      {a}
-                    </option>
-                  ))}
-                </select>
-                <input
-                  type="date"
-                  value={newDueDate}
-                  onChange={(e) => setNewDueDate(e.target.value)}
-                  className="rounded-md bg-[#2a2a2a] border border-zinc-700 px-3 py-2 text-sm text-zinc-300 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                />
-                <button
-                  type="submit"
-                  className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium hover:bg-blue-500 transition-colors"
-                >
-                  + タスクを追加
-                </button>
+              <form onSubmit={addTask} className="mb-4">
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    placeholder="タスクを追加"
+                    value={newName}
+                    onChange={(e) => setNewName(e.target.value)}
+                    className="flex-1 rounded-md bg-[#2a2a2a] border border-zinc-700 px-3 py-2 text-sm placeholder:text-zinc-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  />
+                  <select
+                    value={newAssignee ?? ""}
+                    onChange={(e) => setNewAssignee((e.target.value || null) as Assignee)}
+                    className="rounded-md bg-[#2a2a2a] border border-zinc-700 px-2 py-2 text-sm text-zinc-300 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  >
+                    <option value="">担当者</option>
+                    {ASSIGNEES.map((a) => (
+                      <option key={a} value={a ?? ""}>
+                        {a}
+                      </option>
+                    ))}
+                  </select>
+                  <input
+                    type="date"
+                    value={newDueDate}
+                    onChange={(e) => setNewDueDate(e.target.value)}
+                    className="rounded-md bg-[#2a2a2a] border border-zinc-700 px-3 py-2 text-sm text-zinc-300 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowNewRecur((v) => !v)}
+                    className={`rounded-md border px-2 py-2 text-sm ${
+                      newRecurWeekdays.length > 0
+                        ? "border-blue-500 text-blue-400"
+                        : "border-zinc-700 text-zinc-400"
+                    } hover:border-zinc-500`}
+                    aria-label="繰り返し設定"
+                  >
+                    ↻
+                  </button>
+                  <button
+                    type="submit"
+                    className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium hover:bg-blue-500 transition-colors"
+                  >
+                    + タスクを追加
+                  </button>
+                </div>
+
+                {showNewRecur && (
+                  <div className="flex items-center gap-2 mt-2 px-1">
+                    <span className="text-xs text-zinc-500">繰り返す曜日:</span>
+                    {WEEKDAY_LABELS.map((label, day) => (
+                      <button
+                        key={day}
+                        type="button"
+                        onClick={() => setNewRecurWeekdays((prev) => toggleWeekday(prev, day))}
+                        className={`h-6 w-6 rounded text-xs ${
+                          newRecurWeekdays.includes(day)
+                            ? "bg-blue-600 text-white"
+                            : "bg-[#2a2a2a] text-zinc-400"
+                        }`}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                )}
               </form>
 
               <div className="rounded-lg border border-zinc-800 overflow-hidden">
@@ -316,7 +369,7 @@ export default function Home() {
                       <div className="group grid grid-cols-[1fr_84px_96px_44px_28px] gap-2 items-center px-4 py-2.5 hover:bg-[#202020]">
                         <div className="flex items-center gap-3 min-w-0">
                           <button
-                            onClick={() => patchTask(task.id, { completed: !task.completed })}
+                            onClick={() => toggleCompleted(task)}
                             className={`shrink-0 h-4 w-4 rounded-full border flex items-center justify-center ${
                               task.completed
                                 ? "bg-emerald-500 border-emerald-500"
@@ -371,26 +424,15 @@ export default function Home() {
                           ))}
                         </select>
 
-                        {isEditingDueDate ? (
-                          <input
-                            autoFocus
-                            type="date"
-                            defaultValue={task.dueDate ?? ""}
-                            onChange={(e) => {
-                              patchTask(task.id, { dueDate: e.target.value || null });
-                              setEditingDueDateId(null);
-                            }}
-                            onBlur={() => setEditingDueDateId(null)}
-                            className="rounded bg-[#2a2a2a] border border-zinc-600 px-1 py-1 text-sm text-zinc-100 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                          />
-                        ) : (
-                          <span
-                            onClick={() => setEditingDueDateId(task.id)}
-                            className={`text-sm cursor-pointer ${due.colorClass} ${!due.label && "text-zinc-600"}`}
-                          >
-                            {due.label || "設定"}
-                          </span>
-                        )}
+                        <div
+                          onClick={() => setEditingDueDateId(isEditingDueDate ? null : task.id)}
+                          className={`flex items-center gap-1 text-sm cursor-pointer ${due.colorClass} ${!due.label && "text-zinc-600"}`}
+                        >
+                          <span>{due.label || "設定"}</span>
+                          {task.recurWeekdays && task.recurWeekdays.length > 0 && (
+                            <span title="繰り返し">↻</span>
+                          )}
+                        </div>
 
                         <button
                           onClick={() => setOpenNotesId(notesOpen ? null : task.id)}
@@ -412,6 +454,48 @@ export default function Home() {
                           ×
                         </button>
                       </div>
+
+                      {isEditingDueDate && (
+                        <div className="px-4 pb-3 pl-11 flex flex-col gap-2">
+                          <input
+                            type="date"
+                            value={task.dueDate ?? ""}
+                            onChange={(e) => patchTask(task.id, { dueDate: e.target.value || null })}
+                            className="w-40 rounded bg-[#2a2a2a] border border-zinc-600 px-2 py-1 text-sm text-zinc-100 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                          />
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs text-zinc-500">繰り返す曜日:</span>
+                            {WEEKDAY_LABELS.map((label, day) => {
+                              const current = task.recurWeekdays ?? [];
+                              const active = current.includes(day);
+                              return (
+                                <button
+                                  key={day}
+                                  type="button"
+                                  onClick={() => {
+                                    const next = toggleWeekday(current, day);
+                                    patchTask(task.id, {
+                                      recurWeekdays: next.length > 0 ? next : null,
+                                    });
+                                  }}
+                                  className={`h-6 w-6 rounded text-xs ${
+                                    active ? "bg-blue-600 text-white" : "bg-[#2a2a2a] text-zinc-400"
+                                  }`}
+                                >
+                                  {label}
+                                </button>
+                              );
+                            })}
+                            <button
+                              type="button"
+                              onClick={() => setEditingDueDateId(null)}
+                              className="text-xs text-zinc-500 hover:text-zinc-300 ml-2"
+                            >
+                              閉じる
+                            </button>
+                          </div>
+                        </div>
+                      )}
 
                       {notesOpen && (
                         <div className="px-4 pb-3 pl-11">
