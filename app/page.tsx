@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { formatDueDate, nextOccurrence } from "@/lib/dueDate";
 
 type Assignee = "田中" | "乗松" | null;
@@ -44,6 +44,9 @@ export default function Home() {
   const [showNewRecur, setShowNewRecur] = useState(false);
   const [editingDueDateId, setEditingDueDateId] = useState<number | null>(null);
   const [openNotesId, setOpenNotesId] = useState<number | null>(null);
+  const [completedToast, setCompletedToast] = useState<{ id: number; name: string } | null>(null);
+  const [toastShrink, setToastShrink] = useState(false);
+  const toastTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -120,13 +123,34 @@ export default function Home() {
     setShowNewRecur(false);
   };
 
+  const showCompletedToast = (task: Task) => {
+    if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current);
+    setToastShrink(false);
+    setCompletedToast({ id: task.id, name: task.name });
+    requestAnimationFrame(() => requestAnimationFrame(() => setToastShrink(true)));
+    toastTimeoutRef.current = setTimeout(() => setCompletedToast(null), 4000);
+  };
+
+  const dismissToast = () => {
+    if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current);
+    setCompletedToast(null);
+  };
+
+  const undoToastComplete = async () => {
+    if (!completedToast) return;
+    await patchTask(completedToast.id, { completed: false });
+    dismissToast();
+  };
+
   const toggleCompleted = async (task: Task) => {
     if (task.recurWeekdays && task.recurWeekdays.length > 0 && task.dueDate && !task.completed) {
       const next = nextOccurrence(task.dueDate, task.recurWeekdays);
       await patchTask(task.id, { dueDate: next });
       return;
     }
-    await patchTask(task.id, { completed: !task.completed });
+    const nextCompleted = !task.completed;
+    await patchTask(task.id, { completed: nextCompleted });
+    if (nextCompleted) showCompletedToast(task);
   };
 
   const toggleWeekday = (list: number[], day: number): number[] =>
@@ -518,6 +542,36 @@ export default function Home() {
           )}
         </div>
       </div>
+
+      {completedToast && (
+        <div className="fixed bottom-6 left-6 z-50 w-80 rounded-md bg-[#2a2a2a] border border-zinc-700 shadow-lg overflow-hidden">
+          <div
+            className="h-1 bg-emerald-500"
+            style={{
+              width: toastShrink ? "0%" : "100%",
+              transition: toastShrink ? "width 4000ms linear" : "none",
+            }}
+          />
+          <div className="flex items-center justify-between gap-3 px-4 py-3">
+            <span className="text-sm text-zinc-100 truncate">タスクが完了しました</span>
+            <div className="flex items-center gap-3 shrink-0">
+              <button
+                onClick={undoToastComplete}
+                className="text-sm text-blue-400 hover:text-blue-300"
+              >
+                元に戻す
+              </button>
+              <button
+                onClick={dismissToast}
+                className="text-zinc-500 hover:text-zinc-300"
+                aria-label="閉じる"
+              >
+                ×
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
