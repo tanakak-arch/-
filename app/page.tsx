@@ -42,7 +42,6 @@ export default function Home() {
   const [newAssignee, setNewAssignee] = useState<Assignee>(null);
   const [newRecurWeekdays, setNewRecurWeekdays] = useState<number[]>([]);
   const [showNewRecur, setShowNewRecur] = useState(false);
-  const [editingNameId, setEditingNameId] = useState<number | null>(null);
   const [editingDueDateId, setEditingDueDateId] = useState<number | null>(null);
   const [openNotesId, setOpenNotesId] = useState<number | null>(null);
 
@@ -359,7 +358,6 @@ export default function Home() {
 
                 {visibleTasks.map((task) => {
                   const due = formatDueDate(task.dueDate, task.completed);
-                  const isEditingName = editingNameId === task.id;
                   const isEditingDueDate = editingDueDateId === task.id;
                   const notesOpen = openNotesId === task.id;
                   const hasNotes = !!task.notes && task.notes.trim().length > 0;
@@ -381,32 +379,28 @@ export default function Home() {
                               <span className="text-[10px] leading-none text-[#191919]">✓</span>
                             )}
                           </button>
-                          {isEditingName ? (
-                            <input
-                              autoFocus
-                              type="text"
-                              defaultValue={task.name}
-                              onBlur={(e) => {
-                                const value = e.target.value.trim();
-                                if (value) patchTask(task.id, { name: value });
-                                setEditingNameId(null);
-                              }}
-                              onKeyDown={(e) => {
-                                if (e.key === "Enter") e.currentTarget.blur();
-                                if (e.key === "Escape") setEditingNameId(null);
-                              }}
-                              className="min-w-0 flex-1 rounded bg-[#2a2a2a] border border-zinc-600 px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500"
-                            />
-                          ) : (
-                            <span
-                              onClick={() => setEditingNameId(task.id)}
-                              className={`truncate text-sm cursor-text ${
-                                task.completed ? "line-through text-zinc-500" : "text-zinc-100"
-                              }`}
-                            >
-                              {task.name}
-                            </span>
-                          )}
+                          <input
+                            type="text"
+                            defaultValue={task.name}
+                            onBlur={(e) => {
+                              const value = e.target.value.trim();
+                              if (value && value !== task.name) {
+                                patchTask(task.id, { name: value });
+                              } else {
+                                e.target.value = task.name;
+                              }
+                            }}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") e.currentTarget.blur();
+                              if (e.key === "Escape") {
+                                e.currentTarget.value = task.name;
+                                e.currentTarget.blur();
+                              }
+                            }}
+                            className={`min-w-0 flex-1 rounded border border-transparent bg-transparent px-1 py-1 text-sm focus:bg-[#2a2a2a] focus:border-zinc-600 focus:outline-none focus:ring-1 focus:ring-blue-500 ${
+                              task.completed ? "line-through text-zinc-500" : "text-zinc-100"
+                            }`}
+                          />
                         </div>
 
                         <select
@@ -425,8 +419,16 @@ export default function Home() {
                         </select>
 
                         <div
+                          role="button"
+                          tabIndex={0}
                           onClick={() => setEditingDueDateId(isEditingDueDate ? null : task.id)}
-                          className={`flex items-center gap-1 text-sm cursor-pointer ${due.colorClass} ${!due.label && "text-zinc-600"}`}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter" || e.key === " ") {
+                              e.preventDefault();
+                              setEditingDueDateId(isEditingDueDate ? null : task.id);
+                            }
+                          }}
+                          className={`flex items-center gap-1 text-sm cursor-pointer rounded focus:outline-none focus:ring-1 focus:ring-blue-500 ${due.colorClass} ${!due.label && "text-zinc-600"}`}
                         >
                           <span>{due.label || "設定"}</span>
                           {task.recurWeekdays && task.recurWeekdays.length > 0 && (
