@@ -205,8 +205,8 @@ export default function Home() {
   const selectedProject = projects.find((p) => p.id === selectedProjectId) ?? null;
 
   return (
-    <div className="min-h-screen bg-[#191919] text-zinc-100 font-sans flex">
-      <aside className="w-56 shrink-0 border-r border-zinc-800 p-4">
+    <div className="min-h-screen bg-[#191919] text-zinc-100 font-sans flex flex-col sm:flex-row">
+      <aside className="w-full sm:w-56 sm:shrink-0 border-b sm:border-b-0 border-r-0 sm:border-r border-zinc-800 p-4">
         <div className="flex items-center justify-between mb-2 px-1">
           <span className="text-xs text-zinc-500">プロジェクト</span>
           <button
@@ -265,7 +265,7 @@ export default function Home() {
         </div>
       </aside>
 
-      <div className="flex-1 px-6 py-8">
+      <div className="flex-1 px-4 py-6 sm:px-6 sm:py-8">
         <div className="mx-auto max-w-4xl">
           {!selectedProject ? (
             <p className="text-sm text-zinc-500">
@@ -273,7 +273,7 @@ export default function Home() {
             </p>
           ) : (
             <>
-              <div className="flex items-center justify-between mb-6">
+              <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
                 <h1 className="text-xl font-semibold">{selectedProject.name}</h1>
                 <div className="flex items-center gap-3">
                   <label className="flex items-center gap-1.5 text-sm text-zinc-400 cursor-pointer select-none">
@@ -296,13 +296,13 @@ export default function Home() {
               </div>
 
               <form onSubmit={addTask} className="mb-4">
-                <div className="flex gap-2">
+                <div className="flex flex-wrap gap-2">
                   <input
                     type="text"
                     placeholder="タスクを追加"
                     value={newName}
                     onChange={(e) => setNewName(e.target.value)}
-                    className="flex-1 rounded-md bg-[#2a2a2a] border border-zinc-700 px-3 py-2 text-sm placeholder:text-zinc-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                    className="flex-1 min-w-[140px] rounded-md bg-[#2a2a2a] border border-zinc-700 px-3 py-2 text-sm placeholder:text-zinc-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
                   />
                   <select
                     value={newAssignee ?? ""}
@@ -364,7 +364,7 @@ export default function Home() {
               </form>
 
               <div className="rounded-lg border border-zinc-800 overflow-hidden">
-                <div className="grid grid-cols-[1fr_84px_96px_44px_28px] gap-2 px-4 py-2 text-xs text-zinc-500 border-b border-zinc-800 bg-[#202020]">
+                <div className="hidden sm:grid sm:grid-cols-[1fr_84px_96px_44px_28px] gap-2 px-4 py-2 text-xs text-zinc-500 border-b border-zinc-800 bg-[#202020]">
                   <span>名前</span>
                   <span>担当者</span>
                   <span>期日</span>
@@ -388,8 +388,8 @@ export default function Home() {
 
                   return (
                     <div key={task.id} className="border-b border-zinc-800 last:border-b-0">
-                      <div className="group grid grid-cols-[1fr_84px_96px_44px_28px] gap-2 items-center px-4 py-2.5 hover:bg-[#202020]">
-                        <div className="flex items-center gap-3 min-w-0">
+                      <div className="group flex flex-wrap sm:grid sm:grid-cols-[1fr_84px_96px_44px_28px] gap-2 items-center px-4 py-2.5 hover:bg-[#202020]">
+                        <div className="flex items-center gap-3 min-w-0 w-full sm:w-auto">
                           <button
                             onClick={() => toggleCompleted(task)}
                             className={`shrink-0 h-4 w-4 rounded-full border flex items-center justify-center ${
@@ -544,7 +544,7 @@ export default function Home() {
       </div>
 
       {completedToast && (
-        <div className="fixed bottom-6 left-6 z-50 w-80 rounded-md bg-[#2a2a2a] border border-zinc-700 shadow-lg overflow-hidden">
+        <div className="fixed bottom-4 left-4 right-4 sm:right-auto sm:bottom-6 sm:left-6 z-50 w-auto sm:w-80 rounded-md bg-[#2a2a2a] border border-zinc-700 shadow-lg overflow-hidden">
           <div
             className="h-1 bg-emerald-500"
             style={{
